@@ -1,14 +1,20 @@
 const CACHE_NAME = 'photo-gallery-v1';
 const urlsToCache = [
   '/',
-  '/static/js/bundle.js',
-  '/static/css/main.css'
+  '/index.html',
+  '/manifest.json'
 ];
 
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
+      .then(cache => Promise.all(
+        urlsToCache.map(url =>
+          cache.add(url).catch(error => {
+            console.warn(`Skipping cache entry for ${url}`, error);
+          })
+        )
+      ))
   );
 });
 

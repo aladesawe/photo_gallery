@@ -1,71 +1,54 @@
 import React, { useState, useEffect } from 'react';
-import LoadingProgress from './LoadingProgress';
 import TagFilter from './TagFilter';
 import Slideshow from './Slideshow';
+import { fetchTags } from './api';
 import './App.css';
 
-// Mock data for now
-const mockTags = ['nature', 'city', 'portrait', 'landscape', 'animals'];
-
-const mockImages = [
-  { id: '1', url: 'https://via.placeholder.com/800x600?text=Image+1', tags: ['nature', 'landscape'] },
-  { id: '2', url: 'https://via.placeholder.com/600x800?text=Image+2', tags: ['portrait', 'city'] },
-  { id: '3', url: 'https://via.placeholder.com/800x600?text=Image+3', tags: ['animals', 'nature'] },
-  // Add more as needed
-];
+const isAbortError = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
 function App() {
   const [allTags, setAllTags] = useState<string[]>([]);
-  const [allImages, setAllImages] = useState<any[]>([]);
-  const [filteredImages, setFilteredImages] = useState<any[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [loadingProgress, setLoadingProgress] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [tagError, setTagError] = useState<string | null>(null);
 
-  // Simulate fetching tags and initial images
   useEffect(() => {
-    // Fetch tags
-    setTimeout(() => {
-      setAllTags(mockTags);
-    }, 500);
+    const controller = new AbortController();
 
-    // Simulate loading images with progress
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 10;
-      setLoadingProgress(progress);
-      if (progress >= 100) {
-        clearInterval(interval);
-        setAllImages(mockImages);
-        setFilteredImages(mockImages);
-        setIsLoading(false);
-      }
-    }, 200);
+    fetchTags(controller.signal)
+      .then(tags => {
+        setAllTags(tags);
+        setTagError(null);
+      })
+      .catch(error => {
+        if (!isAbortError(error)) {
+          setTagError('Tags unavailable');
+        }
+      });
+
+    return () => controller.abort();
   }, []);
 
-  // Filter images based on selected tags
   useEffect(() => {
-    if (selectedTags.length === 0) {
-      setFilteredImages(allImages);
-    } else {
-      setFilteredImages(allImages.filter(img => selectedTags.some(tag => img.tags.includes(tag))));
-    }
-  }, [selectedTags, allImages]);
+    setSelectedTags(prev => prev.filter(tag => allTags.includes(tag)));
+  }, [allTags]);
 
   const handleTagToggle = (tag: string) => {
-    setSelectedTags(prev =>
-      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
-    );
-  };
+    setSelectedTags(prev => {
+      if (prev.includes(tag)) {
+        return prev.filter(currentTag => currentTag !== tag);
+      }
 
-  if (isLoading) {
-    return <LoadingProgress progress={loadingProgress} />;
-  }
+      return [...prev, tag];
+    });
+  };
 
   return (
     <div className="App">
-      <TagFilter allTags={allTags} selectedTags={selectedTags} onTagToggle={handleTagToggle} />
-      <Slideshow images={filteredImages} randomize={true} />
+      <Slideshow selectedTags={selectedTags} />
+      <div className="App__toolbar">
+        <TagFilter allTags={allTags} selectedTags={selectedTags} onTagToggle={handleTagToggle} />
+        {tagError && <div className="App__status">{tagError}</div>}
+      </div>
     </div>
   );
 }

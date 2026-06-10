@@ -7,16 +7,17 @@ interface TagFilterProps {
 }
 
 const TagFilter: React.FC<TagFilterProps> = ({ allTags, selectedTags, onTagToggle }) => {
+  if (allTags.length === 0) {
+    return null;
+  }
+
   return (
     <div style={{
-      position: 'absolute',
-      top: '20px',
-      left: '20px',
-      zIndex: 10,
-      backgroundColor: 'rgba(255, 255, 255, 0.9)',
-      padding: '10px',
-      borderRadius: '8px',
-      boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
+      maxWidth: 'min(720px, 100%)',
+      backgroundColor: 'rgba(10, 10, 10, 0.68)',
+      padding: '8px',
+      borderRadius: '6px',
+      boxShadow: '0 10px 30px rgba(0,0,0,0.25)'
     }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
         {allTags.map(tag => (
@@ -25,10 +26,10 @@ const TagFilter: React.FC<TagFilterProps> = ({ allTags, selectedTags, onTagToggl
             onClick={() => onTagToggle(tag)}
             style={{
               padding: '5px 10px',
-              border: 'none',
-              borderRadius: '15px',
-              backgroundColor: selectedTags.includes(tag) ? '#007bff' : '#e9ecef',
-              color: selectedTags.includes(tag) ? 'white' : 'black',
+              border: '1px solid rgba(255,255,255,0.18)',
+              borderRadius: '6px',
+              backgroundColor: selectedTags.includes(tag) ? '#f7f7f7' : 'rgba(255,255,255,0.12)',
+              color: selectedTags.includes(tag) ? '#0c0c0c' : '#f7f7f7',
               cursor: 'pointer',
               fontSize: '14px'
             }}

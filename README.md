@@ -4,19 +4,19 @@ A React photo gallery application with an Azure Functions backend under `api/`.
 
 ## Local development
 
-Install dependencies:
+Use Node.js 20 or newer, then install dependencies:
 
 ```bash
 npm install
 ```
 
-Start the development server:
+Start the Vite development server:
 
 ```bash
 npm start
 ```
 
-Open http://localhost:3000 to view the app.
+Open the URL printed by Vite, usually http://localhost:5173.
 
 ## Testing
 
@@ -43,6 +43,7 @@ This repository includes Azure Functions in the `api/` folder. The provided depl
 ### Prerequisites
 
 - Azure CLI installed and authenticated (`az login`)
+- Node.js 20 or newer
 - A resource group and Azure region
 - A GitHub repository for full Static Web Apps workflow support
 - Cosmos DB environment values configured in Azure for the function backend
@@ -93,7 +94,9 @@ npm run azure:deploy
 ### Notes
 
 - The deployment script builds the React app and deploys it to Azure Static Web Apps.
-- The backend functions in `api/` use the following environment variables: `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, and `COSMOS_CONTAINER`.
+- The deployment script applies supported runtime values from `.env` to the Static Web App managed API app settings.
+- The backend functions in `api/` use the following Cosmos environment variables: `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE`, and `COSMOS_CONTAINER`.
+- For private blob containers, `getPictures` also needs `AZURE_STORAGE_ACCOUNT_NAME`, `AZURE_STORAGE_ACCOUNT_KEY`, and `AZURE_STORAGE_CONTAINER_NAME`. Optional `BLOB_SAS_TTL_MINUTES` controls the generated read URL lifetime and defaults to 30 minutes.
 
 ## Project structure
 
