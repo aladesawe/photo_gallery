@@ -174,6 +174,31 @@ function shuffle(items) {
   return shuffled;
 }
 
+function getTagFilter(tags) {
+  if (tags.length === 0) {
+    return {
+      clause: '',
+      parameters: []
+    };
+  }
+
+  return {
+    clause: ` WHERE ${tags.map((tag, index) => `ARRAY_CONTAINS(c.tags, @tag${index})`).join(' OR ')}`,
+    parameters: tags.map((tag, index) => ({ name: `@tag${index}`, value: tag }))
+  };
+}
+
+async function getRandomOffset(container, tagFilter, queryLimit) {
+  const countQuerySpec = {
+    query: `SELECT VALUE COUNT(1) FROM c${tagFilter.clause}`,
+    parameters: tagFilter.parameters
+  };
+  const { resources: countResults } = await container.items.query(countQuerySpec).fetchAll();
+  const count = countResults[0] || 0;
+
+  return Math.floor(Math.random() * Math.max(count - queryLimit + 1, 1));
+}
+
 module.exports = async function (context, req) {
   try {
     const { config, missing } = getCosmosConfig();
@@ -206,25 +231,12 @@ module.exports = async function (context, req) {
       ? req.query.tags.split(',').map(tag => tag.trim()).filter(Boolean)
       : [];
     const queryLimit = random ? Math.max(limit, Math.min(RANDOM_POOL_SIZE, limit * 20)) : limit;
-
-    let query = 'SELECT * FROM c';
-    let parameters = [];
-
-    if (tags.length > 0) {
-      const tagConditions = tags.map((tag, index) => `ARRAY_CONTAINS(c.tags, @tag${index})`).join(' OR ');
-      query += ` WHERE ${tagConditions}`;
-      parameters = tags.map((tag, index) => ({ name: `@tag${index}`, value: tag }));
-    }
-
-    if (random) {
-      query += ` OFFSET 0 LIMIT ${queryLimit}`;
-    } else {
-      query += ` OFFSET ${offset} LIMIT ${limit}`;
-    }
+    const tagFilter = getTagFilter(tags);
+    const queryOffset = random ? await getRandomOffset(container, tagFilter, queryLimit) : offset;
 
     const querySpec = {
-      query,
-      parameters
+      query: `SELECT * FROM c${tagFilter.clause} OFFSET ${queryOffset} LIMIT ${random ? queryLimit : limit}`,
+      parameters: tagFilter.parameters
     };
 
     const { resources: pictures } = await container.items.query(querySpec).fetchAll();
@@ -233,6 +245,9 @@ module.exports = async function (context, req) {
 
     context.res = {
       status: 200,
+      headers: {
+        'Cache-Control': 'no-store'
+      },
       body: responsePictures.map(picture => withReadableImageUrl(picture, blobConfig))
     };
   } catch (error) {

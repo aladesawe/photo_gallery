@@ -45,7 +45,7 @@ const readJson = async <T>(response: Response): Promise<T> => {
 };
 
 export const fetchTags = async (signal?: AbortSignal): Promise<string[]> => {
-  const response = await fetch(apiPath('getTags'), { signal });
+  const response = await fetch(apiPath('getTags'), { cache: 'no-store', signal });
   const tags = await readJson<unknown>(response);
 
   return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : [];
@@ -68,6 +68,7 @@ export const fetchRandomImages = async (
   }
 
   const response = await fetch(`${apiPath('getPictures')}?${params.toString()}`, {
+    cache: 'no-store',
     signal: options.signal,
   });
   const images = await readJson<RawGalleryImage[]>(response);

@@ -60,6 +60,9 @@ module.exports = async function (context, req) {
 
     context.res = {
       status: 200,
+      headers: {
+        'Cache-Control': 'no-store'
+      },
       body: tags
     };
   } catch (error) {
