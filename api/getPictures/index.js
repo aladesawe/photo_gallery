@@ -30,11 +30,27 @@ function getBlobConfig() {
   };
 }
 
+function isBlobConfigComplete(config) {
+  return Boolean(config.accountName && config.accountKey && config.containerName);
+}
+
 function isAbsoluteUrl(value) {
   return /^https?:\/\//i.test(value);
 }
 
+function isAzureBlobUrl(value) {
+  try {
+    return new URL(value).hostname.toLowerCase().endsWith('.blob.core.windows.net');
+  } catch {
+    return false;
+  }
+}
+
 function getConfiguredBlobNameFromUrl(value, config) {
+  if (!config.accountName || !config.containerName) {
+    return null;
+  }
+
   let url;
 
   try {
@@ -71,7 +87,7 @@ function getBlobName(picture, blobConfig) {
     return blobName.trim().replace(/^\/+/, '');
   }
 
-  const imageReference = picture.url || picture.imageUrl || picture.src;
+  const imageReference = getImageReference(picture);
 
   if (typeof imageReference !== 'string' || !imageReference.trim()) {
     return null;
@@ -84,6 +100,20 @@ function getBlobName(picture, blobConfig) {
   }
 
   return trimmedReference.replace(/^\/+/, '');
+}
+
+function getImageReference(picture) {
+  return [picture.url, picture.imageUrl, picture.src]
+    .find(value => typeof value === 'string' && value.trim());
+}
+
+function withCanonicalUrl(picture, url) {
+  const { imageUrl, src, ...responsePicture } = picture;
+
+  return {
+    ...responsePicture,
+    url
+  };
 }
 
 function createBlobReadSasUrl(blobName, config) {
@@ -141,26 +171,33 @@ function createBlobReadSasUrl(blobName, config) {
 }
 
 function withReadableImageUrl(picture, blobConfig) {
-  const existingUrl = picture.url || picture.imageUrl || picture.src;
+  const existingUrl = getImageReference(picture);
+  const hasAbsoluteUrl = typeof existingUrl === 'string' && isAbsoluteUrl(existingUrl);
+  const isConfiguredBlobUrl = hasAbsoluteUrl && getConfiguredBlobNameFromUrl(existingUrl, blobConfig);
 
   if (
-    typeof existingUrl === 'string' &&
-    isAbsoluteUrl(existingUrl) &&
-    !getConfiguredBlobNameFromUrl(existingUrl, blobConfig)
+    hasAbsoluteUrl &&
+    !isConfiguredBlobUrl &&
+    !isAzureBlobUrl(existingUrl)
   ) {
-    return picture;
+    return withCanonicalUrl(picture, existingUrl.trim());
   }
 
   const blobName = getBlobName(picture, blobConfig);
 
   if (!blobName) {
-    return picture;
+    if (existingUrl && isAzureBlobUrl(existingUrl)) {
+      return null;
+    }
+
+    return withCanonicalUrl(picture, existingUrl ? existingUrl.trim() : picture.url);
   }
 
-  return {
-    ...picture,
-    url: createBlobReadSasUrl(blobName, blobConfig)
-  };
+  if (!isBlobConfigComplete(blobConfig)) {
+    return null;
+  }
+
+  return withCanonicalUrl(picture, createBlobReadSasUrl(blobName, blobConfig));
 }
 
 function shuffle(items) {
@@ -243,12 +280,16 @@ module.exports = async function (context, req) {
     const responsePictures = random ? shuffle(pictures).slice(0, limit) : pictures;
     const blobConfig = getBlobConfig();
 
+    const readablePictures = responsePictures
+      .map(picture => withReadableImageUrl(picture, blobConfig))
+      .filter(Boolean);
+
     context.res = {
       status: 200,
       headers: {
         'Cache-Control': 'no-store'
       },
-      body: responsePictures.map(picture => withReadableImageUrl(picture, blobConfig))
+      body: readablePictures
     };
   } catch (error) {
     context.log.error('Error fetching pictures:', error);

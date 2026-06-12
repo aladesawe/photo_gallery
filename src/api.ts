@@ -9,8 +9,6 @@ interface RawGalleryImage {
   id?: string;
   _id?: string | { $oid?: string };
   url?: string;
-  imageUrl?: string;
-  src?: string;
   tags?: string[];
   title?: string;
   name?: string;
@@ -19,7 +17,7 @@ interface RawGalleryImage {
 const apiPath = (path: string) => `/api/${path}`;
 
 const normalizeImage = (image: RawGalleryImage, index: number): GalleryImage | null => {
-  const url = image.url || image.imageUrl || image.src;
+  const url = image.url;
 
   if (!url) {
     return null;
