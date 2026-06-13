@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import App from './App';
+import { getSwipeNavigation } from './Slideshow';
 
 const mockFetch = vi.fn();
 
@@ -26,6 +27,12 @@ beforeEach(() => {
             tags: ['family'],
             title: 'Backyard dinner',
           },
+          {
+            id: 'photo-2',
+            url: 'https://example.com/photo-2.jpg',
+            tags: ['travel'],
+            title: 'Mountain overlook',
+          },
         ]),
       });
     }
@@ -44,7 +51,7 @@ afterEach(() => {
 test('loads tags and a random photo batch', async () => {
   render(<App />);
 
-  expect(screen.getByText(/loading photos/i)).not.toBeNull();
+  expect(screen.getByText(/loading gallery/i)).not.toBeNull();
 
   expect(await screen.findByRole('button', { name: 'family' })).not.toBeNull();
 
@@ -57,4 +64,14 @@ test('loads tags and a random photo batch', async () => {
     '/api/getPictures?limit=12&random=true',
     expect.any(Object)
   );
+});
+
+test('detects horizontal swipe navigation', () => {
+  expect(getSwipeNavigation({ x: 220, y: 120 }, { x: 130, y: 124 })).toBe('next');
+  expect(getSwipeNavigation({ x: 130, y: 120 }, { x: 220, y: 124 })).toBe('previous');
+});
+
+test('ignores short and mostly vertical swipe gestures', () => {
+  expect(getSwipeNavigation({ x: 220, y: 120 }, { x: 180, y: 124 })).toBeNull();
+  expect(getSwipeNavigation({ x: 220, y: 120 }, { x: 160, y: 240 })).toBeNull();
 });

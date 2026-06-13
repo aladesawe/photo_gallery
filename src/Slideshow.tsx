@@ -4,12 +4,15 @@ import { fetchRandomImages, GalleryImage } from './api';
 const BATCH_SIZE = 12;
 const PREFETCH_REMAINING = 4;
 const SLIDE_DURATION_MS = 6500;
+const SWIPE_MIN_DISTANCE = 50;
 
 interface SlideshowProps {
   selectedTags: string[];
 }
 
 type LoadState = 'loading' | 'ready' | 'empty' | 'error';
+type SwipePoint = { x: number; y: number };
+type SwipeNavigation = 'next' | 'previous' | null;
 
 const isAbortError = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
@@ -18,6 +21,18 @@ const preloadImages = (images: GalleryImage[]) => {
     const preload = new Image();
     preload.src = image.url;
   });
+};
+
+export const getSwipeNavigation = (start: SwipePoint, end: SwipePoint): SwipeNavigation => {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const absDeltaX = Math.abs(deltaX);
+
+  if (absDeltaX < SWIPE_MIN_DISTANCE || absDeltaX <= Math.abs(deltaY)) {
+    return null;
+  }
+
+  return deltaX < 0 ? 'next' : 'previous';
 };
 
 const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
@@ -29,6 +44,7 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
   const [nextBatchError, setNextBatchError] = useState(false);
   const activeRequestId = useRef(0);
   const nextRequestRef = useRef<AbortController | null>(null);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const tagsKey = useMemo(() => selectedTags.join('|'), [selectedTags]);
 
@@ -93,6 +109,44 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
   const movePrevious = useCallback(() => {
     setCurrentIndex(index => Math.max(index - 1, 0));
   }, []);
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLElement>) => {
+    const touch = event.touches[0];
+    swipeStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+    };
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent<HTMLElement>) => {
+    const swipeStart = swipeStartRef.current;
+    swipeStartRef.current = null;
+    const touch = event.changedTouches[0];
+
+    if (!swipeStart || !touch) {
+      return;
+    }
+
+    const navigation = getSwipeNavigation(swipeStart, {
+      x: touch.clientX,
+      y: touch.clientY,
+    });
+
+    if (!navigation) {
+      return;
+    }
+
+    if (navigation === 'next') {
+      moveNext();
+      return;
+    }
+
+    movePrevious();
+  };
+
+  const handleTouchCancel = () => {
+    swipeStartRef.current = null;
+  };
 
   useEffect(() => {
     activeRequestId.current += 1;
@@ -198,7 +252,12 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
   const isWaitingForNextBatch = isAtBatchEnd && nextBatch.length === 0 && nextBatchLoading;
 
   return (
-    <main className="Slideshow">
+    <main
+      className="Slideshow"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
+    >
       <img
         className="Slideshow__image"
         src={currentImage.url}
