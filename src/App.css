@@ -53,21 +53,25 @@
 }
 
 .Slideshow__frame {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   will-change: opacity, transform;
 }
 
 .Slideshow__frame--initial {
-  animation: photoInitialReveal 640ms ease-out both;
+  animation: photoInitialReveal 960ms ease-out both;
 }
 
-.Slideshow__frame--next {
-  animation: photoSlideNext 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+.Slideshow__frame--dissolve {
+  animation: photoDissolveIn 1200ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  z-index: 1;
 }
 
 .Slideshow__frame--previous {
-  animation: photoSlidePrevious 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: photoDissolveOut 1200ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  z-index: 0;
 }
 
 .Slideshow__image {
@@ -116,7 +120,7 @@
 @keyframes photoInitialReveal {
   from {
     opacity: 0;
-    transform: scale(1.015);
+    transform: scale(1.008);
   }
 
   to {
@@ -125,27 +129,27 @@
   }
 }
 
-@keyframes photoSlideNext {
+@keyframes photoDissolveIn {
   from {
-    opacity: 0.18;
-    transform: translateX(28px) scale(0.992);
+    opacity: 0;
+    transform: scale(1.006);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: scale(1);
   }
 }
 
-@keyframes photoSlidePrevious {
+@keyframes photoDissolveOut {
   from {
-    opacity: 0.18;
-    transform: translateX(-28px) scale(0.992);
+    opacity: 1;
+    transform: scale(1);
   }
 
   to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
+    opacity: 0;
+    transform: scale(0.996);
   }
 }
 

@@ -13,7 +13,12 @@ interface SlideshowProps {
 type LoadState = 'loading' | 'ready' | 'empty' | 'error';
 type SwipePoint = { x: number; y: number };
 type SwipeNavigation = 'next' | 'previous' | null;
-type TransitionDirection = 'initial' | 'next' | 'previous';
+type TransitionMode = 'initial' | 'dissolve';
+type ImageTransition = {
+  mode: TransitionMode;
+  previousImage: GalleryImage | null;
+  sequence: number;
+};
 
 const isAbortError = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
@@ -43,8 +48,13 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [nextBatchLoading, setNextBatchLoading] = useState(false);
   const [nextBatchError, setNextBatchError] = useState(false);
-  const [transitionDirection, setTransitionDirection] = useState<TransitionDirection>('initial');
+  const [transition, setTransition] = useState<ImageTransition>({
+    mode: 'initial',
+    previousImage: null,
+    sequence: 0,
+  });
   const activeRequestId = useRef(0);
+  const transitionSequenceRef = useRef(0);
   const nextRequestRef = useRef<AbortController | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -86,6 +96,28 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
       });
   }, [loadBatch, nextBatch.length, nextBatchLoading]);
 
+  const startDissolve = useCallback((previousImage: GalleryImage) => {
+    transitionSequenceRef.current += 1;
+    setTransition({
+      mode: 'dissolve',
+      previousImage,
+      sequence: transitionSequenceRef.current,
+    });
+  }, []);
+
+  const handlePreviousTransitionEnd = useCallback((sequence: number) => {
+    setTransition(currentTransition => {
+      if (currentTransition.sequence !== sequence) {
+        return currentTransition;
+      }
+
+      return {
+        ...currentTransition,
+        previousImage: null,
+      };
+    });
+  }, []);
+
   const moveNext = useCallback(() => {
     setCurrentIndex(index => {
       if (activeBatch.length === 0) {
@@ -93,22 +125,22 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
       }
 
       if (index < activeBatch.length - 1) {
-        setTransitionDirection('next');
+        startDissolve(activeBatch[index]);
         return index + 1;
       }
 
       if (nextBatch.length > 0) {
+        startDissolve(activeBatch[index]);
         setActiveBatch(nextBatch);
         setNextBatch([]);
         setNextBatchError(false);
-        setTransitionDirection('next');
         return 0;
       }
 
       fetchNextBatch();
       return index;
     });
-  }, [activeBatch.length, fetchNextBatch, nextBatch]);
+  }, [activeBatch, fetchNextBatch, nextBatch, startDissolve]);
 
   const movePrevious = useCallback(() => {
     setCurrentIndex(index => {
@@ -116,10 +148,10 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
         return 0;
       }
 
-      setTransitionDirection('previous');
+      startDissolve(activeBatch[index]);
       return index - 1;
     });
-  }, []);
+  }, [activeBatch, startDissolve]);
 
   const handleTouchStart = (event: React.TouchEvent<HTMLElement>) => {
     const touch = event.touches[0];
@@ -169,7 +201,12 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
     setActiveBatch([]);
     setNextBatch([]);
     setCurrentIndex(0);
-    setTransitionDirection('initial');
+    transitionSequenceRef.current += 1;
+    setTransition({
+      mode: 'initial',
+      previousImage: null,
+      sequence: transitionSequenceRef.current,
+    });
     setNextBatchLoading(false);
     setNextBatchError(false);
 
@@ -262,8 +299,11 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
   const isAtFirstImage = currentIndex === 0;
   const isAtBatchEnd = currentIndex === activeBatch.length - 1;
   const isWaitingForNextBatch = isAtBatchEnd && nextBatch.length === 0 && nextBatchLoading;
-  const transitionClassName = `Slideshow__frame Slideshow__frame--${transitionDirection}`;
-  const transitionKey = `${currentImage.id}-${currentImage.url}-${currentIndex}`;
+  const currentTransitionClassName = `Slideshow__frame Slideshow__frame--current Slideshow__frame--${transition.mode}`;
+  const currentTransitionKey = `${transition.sequence}-${currentImage.id}-${currentImage.url}-${currentIndex}`;
+  const previousTransitionKey = transition.previousImage
+    ? `${transition.sequence}-${transition.previousImage.id}-${transition.previousImage.url}-previous`
+    : null;
 
   return (
     <main
@@ -273,7 +313,21 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
       onTouchCancel={handleTouchCancel}
     >
       <div className="Slideshow__stage">
-        <div className={transitionClassName} key={transitionKey}>
+        {transition.previousImage && previousTransitionKey && (
+          <div
+            className="Slideshow__frame Slideshow__frame--previous"
+            key={previousTransitionKey}
+            onAnimationEnd={() => handlePreviousTransitionEnd(transition.sequence)}
+          >
+            <img
+              className="Slideshow__image"
+              src={transition.previousImage.url}
+              alt={transition.previousImage.title || ''}
+              aria-hidden="true"
+            />
+          </div>
+        )}
+        <div className={currentTransitionClassName} key={currentTransitionKey}>
           <img
             className="Slideshow__image"
             src={currentImage.url}
