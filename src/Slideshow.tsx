@@ -13,6 +13,7 @@ interface SlideshowProps {
 type LoadState = 'loading' | 'ready' | 'empty' | 'error';
 type SwipePoint = { x: number; y: number };
 type SwipeNavigation = 'next' | 'previous' | null;
+type TransitionDirection = 'initial' | 'next' | 'previous';
 
 const isAbortError = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
@@ -42,6 +43,7 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [nextBatchLoading, setNextBatchLoading] = useState(false);
   const [nextBatchError, setNextBatchError] = useState(false);
+  const [transitionDirection, setTransitionDirection] = useState<TransitionDirection>('initial');
   const activeRequestId = useRef(0);
   const nextRequestRef = useRef<AbortController | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -91,6 +93,7 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
       }
 
       if (index < activeBatch.length - 1) {
+        setTransitionDirection('next');
         return index + 1;
       }
 
@@ -98,6 +101,7 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
         setActiveBatch(nextBatch);
         setNextBatch([]);
         setNextBatchError(false);
+        setTransitionDirection('next');
         return 0;
       }
 
@@ -107,7 +111,14 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
   }, [activeBatch.length, fetchNextBatch, nextBatch]);
 
   const movePrevious = useCallback(() => {
-    setCurrentIndex(index => Math.max(index - 1, 0));
+    setCurrentIndex(index => {
+      if (index === 0) {
+        return 0;
+      }
+
+      setTransitionDirection('previous');
+      return index - 1;
+    });
   }, []);
 
   const handleTouchStart = (event: React.TouchEvent<HTMLElement>) => {
@@ -158,6 +169,7 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
     setActiveBatch([]);
     setNextBatch([]);
     setCurrentIndex(0);
+    setTransitionDirection('initial');
     setNextBatchLoading(false);
     setNextBatchError(false);
 
@@ -250,6 +262,8 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
   const isAtFirstImage = currentIndex === 0;
   const isAtBatchEnd = currentIndex === activeBatch.length - 1;
   const isWaitingForNextBatch = isAtBatchEnd && nextBatch.length === 0 && nextBatchLoading;
+  const transitionClassName = `Slideshow__frame Slideshow__frame--${transitionDirection}`;
+  const transitionKey = `${currentImage.id}-${currentImage.url}-${currentIndex}`;
 
   return (
     <main
@@ -258,11 +272,15 @@ const Slideshow: React.FC<SlideshowProps> = ({ selectedTags }) => {
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchCancel}
     >
-      <img
-        className="Slideshow__image"
-        src={currentImage.url}
-        alt={currentImage.title || ''}
-      />
+      <div className="Slideshow__stage">
+        <div className={transitionClassName} key={transitionKey}>
+          <img
+            className="Slideshow__image"
+            src={currentImage.url}
+            alt={currentImage.title || ''}
+          />
+        </div>
+      </div>
       <div className="Slideshow__hud" aria-live="polite">
         {nextBatchError && <div className="Slideshow__batchStatus">More photos unavailable</div>}
         <div className="Slideshow__count">{currentIndex + 1} / {activeBatch.length}</div>
