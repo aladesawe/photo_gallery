@@ -2,9 +2,9 @@ const { CosmosClient } = require('@azure/cosmos');
 const crypto = require('crypto');
 
 const MAX_LIMIT = 100;
-const RANDOM_POOL_SIZE = 250;
 const DEFAULT_SAS_TTL_MINUTES = 30;
 const SAS_VERSION = '2020-12-06';
+const UNKNOWN_FOLDER = '__unknown_folder__';
 
 function getCosmosConfig() {
   const config = {
@@ -211,6 +211,83 @@ function shuffle(items) {
   return shuffled;
 }
 
+function getPathSegments(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return [];
+  }
+
+  return value
+    .trim()
+    .replace(/^\/+/, '')
+    .split('/')
+    .map(segment => segment.trim())
+    .filter(Boolean);
+}
+
+function getImagePathSegments(picture, blobConfig) {
+  const blobName = getBlobName(picture, blobConfig);
+
+  if (blobName) {
+    return getPathSegments(blobName);
+  }
+
+  const imageReference = getImageReference(picture);
+
+  if (typeof imageReference !== 'string' || !imageReference.trim()) {
+    return [];
+  }
+
+  try {
+    return getPathSegments(new URL(imageReference).pathname);
+  } catch {
+    return getPathSegments(imageReference);
+  }
+}
+
+function getPictureFolderKey(picture, blobConfig = {}) {
+  const [folder] = getImagePathSegments(picture, blobConfig);
+  return folder || UNKNOWN_FOLDER;
+}
+
+function getBalancedRandomPictures(pictures, limit, blobConfig = {}) {
+  const groupsByFolder = pictures.reduce((groups, picture) => {
+    const folderKey = getPictureFolderKey(picture, blobConfig);
+    const group = groups.get(folderKey) || [];
+
+    group.push(picture);
+    groups.set(folderKey, group);
+
+    return groups;
+  }, new Map());
+
+  let activeGroups = shuffle([...groupsByFolder.values()].map(group => shuffle(group)));
+  const selectedPictures = [];
+
+  while (activeGroups.length > 0 && selectedPictures.length < limit) {
+    const nextActiveGroups = [];
+
+    for (const group of activeGroups) {
+      const picture = group.shift();
+
+      if (picture) {
+        selectedPictures.push(picture);
+      }
+
+      if (group.length > 0) {
+        nextActiveGroups.push(group);
+      }
+
+      if (selectedPictures.length >= limit) {
+        break;
+      }
+    }
+
+    activeGroups = shuffle(nextActiveGroups);
+  }
+
+  return shuffle(selectedPictures);
+}
+
 function getTagFilter(tags) {
   if (tags.length === 0) {
     return {
@@ -225,18 +302,7 @@ function getTagFilter(tags) {
   };
 }
 
-async function getRandomOffset(container, tagFilter, queryLimit) {
-  const countQuerySpec = {
-    query: `SELECT VALUE COUNT(1) FROM c${tagFilter.clause}`,
-    parameters: tagFilter.parameters
-  };
-  const { resources: countResults } = await container.items.query(countQuerySpec).fetchAll();
-  const count = countResults[0] || 0;
-
-  return Math.floor(Math.random() * Math.max(count - queryLimit + 1, 1));
-}
-
-module.exports = async function (context, req) {
+async function getPictures(context, req) {
   try {
     const { config, missing } = getCosmosConfig();
 
@@ -267,18 +333,18 @@ module.exports = async function (context, req) {
     const tags = req.query.tags
       ? req.query.tags.split(',').map(tag => tag.trim()).filter(Boolean)
       : [];
-    const queryLimit = random ? Math.max(limit, Math.min(RANDOM_POOL_SIZE, limit * 20)) : limit;
     const tagFilter = getTagFilter(tags);
-    const queryOffset = random ? await getRandomOffset(container, tagFilter, queryLimit) : offset;
+    const blobConfig = getBlobConfig();
 
     const querySpec = {
-      query: `SELECT * FROM c${tagFilter.clause} OFFSET ${queryOffset} LIMIT ${random ? queryLimit : limit}`,
+      query: random
+        ? `SELECT * FROM c${tagFilter.clause}`
+        : `SELECT * FROM c${tagFilter.clause} OFFSET ${offset} LIMIT ${limit}`,
       parameters: tagFilter.parameters
     };
 
     const { resources: pictures } = await container.items.query(querySpec).fetchAll();
-    const responsePictures = random ? shuffle(pictures).slice(0, limit) : pictures;
-    const blobConfig = getBlobConfig();
+    const responsePictures = random ? getBalancedRandomPictures(pictures, limit, blobConfig) : pictures;
 
     const readablePictures = responsePictures
       .map(picture => withReadableImageUrl(picture, blobConfig))
@@ -301,4 +367,10 @@ module.exports = async function (context, req) {
       }
     };
   }
+}
+
+module.exports = getPictures;
+module.exports._internals = {
+  getBalancedRandomPictures,
+  getPictureFolderKey
 };
