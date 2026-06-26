@@ -2,9 +2,9 @@ const { CosmosClient } = require('@azure/cosmos');
 const crypto = require('crypto');
 
 const MAX_LIMIT = 100;
-const RANDOM_POOL_SIZE = 250;
 const DEFAULT_SAS_TTL_MINUTES = 30;
 const SAS_VERSION = '2020-12-06';
+const UNKNOWN_FOLDER = '__unknown_folder__';
 
 function getCosmosConfig() {
   const config = {
@@ -211,6 +211,121 @@ function shuffle(items) {
   return shuffled;
 }
 
+function getPathSegments(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return [];
+  }
+
+  return value
+    .trim()
+    .replace(/^\/+/, '')
+    .split('/')
+    .map(segment => segment.trim())
+    .filter(Boolean);
+}
+
+function getImagePathSegments(picture, blobConfig) {
+  const blobName = getBlobName(picture, blobConfig);
+
+  if (blobName) {
+    return getPathSegments(blobName);
+  }
+
+  const imageReference = getImageReference(picture);
+
+  if (typeof imageReference !== 'string' || !imageReference.trim()) {
+    return [];
+  }
+
+  try {
+    return getPathSegments(new URL(imageReference).pathname);
+  } catch {
+    return getPathSegments(imageReference);
+  }
+}
+
+function getPictureFolderKey(picture, blobConfig = {}) {
+  const [folder] = getImagePathSegments(picture, blobConfig);
+  return folder || UNKNOWN_FOLDER;
+}
+
+function pickWeightedIndex(items, getWeight) {
+  const totalWeight = items.reduce((total, item) => total + getWeight(item), 0);
+
+  if (totalWeight <= 0) {
+    return Math.floor(Math.random() * items.length);
+  }
+
+  let remainingWeight = Math.random() * totalWeight;
+
+  for (let index = 0; index < items.length; index += 1) {
+    remainingWeight -= getWeight(items[index]);
+
+    if (remainingWeight <= 0) {
+      return index;
+    }
+  }
+
+  return items.length - 1;
+}
+
+function allocateProportionalQuotas(groups, limit, totalCount) {
+  const quotas = groups.map(group => {
+    const target = (limit * group.pictures.length) / totalCount;
+    const quota = Math.min(Math.floor(target), group.pictures.length);
+
+    return {
+      ...group,
+      quota,
+      remainder: target - quota
+    };
+  });
+
+  let allocatedCount = quotas.reduce((total, group) => total + group.quota, 0);
+
+  while (allocatedCount < limit) {
+    const candidates = quotas.filter(group => group.quota < group.pictures.length);
+
+    if (candidates.length === 0) {
+      break;
+    }
+
+    const candidateIndex = pickWeightedIndex(candidates, group => group.remainder);
+    const selectedGroup = candidates[candidateIndex];
+
+    selectedGroup.quota += 1;
+    selectedGroup.remainder = 0;
+    allocatedCount += 1;
+  }
+
+  return quotas;
+}
+
+function getProportionalRandomPictures(pictures, limit, blobConfig = {}) {
+  if (pictures.length <= limit) {
+    return shuffle(pictures);
+  }
+
+  const groupsByFolder = pictures.reduce((groups, picture) => {
+    const folderKey = getPictureFolderKey(picture, blobConfig);
+    const group = groups.get(folderKey) || [];
+
+    group.push(picture);
+    groups.set(folderKey, group);
+
+    return groups;
+  }, new Map());
+
+  const groups = [...groupsByFolder.entries()].map(([folder, folderPictures]) => ({
+    folder,
+    pictures: shuffle(folderPictures)
+  }));
+
+  const quotas = allocateProportionalQuotas(groups, limit, pictures.length);
+
+  return shuffle(quotas.flatMap(group => group.pictures.slice(0, group.quota)));
+}
+
 function getTagFilter(tags) {
   if (tags.length === 0) {
     return {
@@ -225,18 +340,7 @@ function getTagFilter(tags) {
   };
 }
 
-async function getRandomOffset(container, tagFilter, queryLimit) {
-  const countQuerySpec = {
-    query: `SELECT VALUE COUNT(1) FROM c${tagFilter.clause}`,
-    parameters: tagFilter.parameters
-  };
-  const { resources: countResults } = await container.items.query(countQuerySpec).fetchAll();
-  const count = countResults[0] || 0;
-
-  return Math.floor(Math.random() * Math.max(count - queryLimit + 1, 1));
-}
-
-module.exports = async function (context, req) {
+async function getPictures(context, req) {
   try {
     const { config, missing } = getCosmosConfig();
 
@@ -267,18 +371,18 @@ module.exports = async function (context, req) {
     const tags = req.query.tags
       ? req.query.tags.split(',').map(tag => tag.trim()).filter(Boolean)
       : [];
-    const queryLimit = random ? Math.max(limit, Math.min(RANDOM_POOL_SIZE, limit * 20)) : limit;
     const tagFilter = getTagFilter(tags);
-    const queryOffset = random ? await getRandomOffset(container, tagFilter, queryLimit) : offset;
+    const blobConfig = getBlobConfig();
 
     const querySpec = {
-      query: `SELECT * FROM c${tagFilter.clause} OFFSET ${queryOffset} LIMIT ${random ? queryLimit : limit}`,
+      query: random
+        ? `SELECT * FROM c${tagFilter.clause}`
+        : `SELECT * FROM c${tagFilter.clause} OFFSET ${offset} LIMIT ${limit}`,
       parameters: tagFilter.parameters
     };
 
     const { resources: pictures } = await container.items.query(querySpec).fetchAll();
-    const responsePictures = random ? shuffle(pictures).slice(0, limit) : pictures;
-    const blobConfig = getBlobConfig();
+    const responsePictures = random ? getProportionalRandomPictures(pictures, limit, blobConfig) : pictures;
 
     const readablePictures = responsePictures
       .map(picture => withReadableImageUrl(picture, blobConfig))
@@ -301,4 +405,11 @@ module.exports = async function (context, req) {
       }
     };
   }
+}
+
+module.exports = getPictures;
+module.exports._internals = {
+  allocateProportionalQuotas,
+  getPictureFolderKey,
+  getProportionalRandomPictures
 };
